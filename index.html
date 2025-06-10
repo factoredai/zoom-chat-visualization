@@ -254,70 +254,62 @@
     </div>
     <div id="chatLogContainer" class="main-container"></div> 
 <script>
-    document.addEventListener('DOMContentLoaded', () => {
-        const reactions = document.querySelectorAll('.reaction');
-        let showTooltipTimeout;
-        let currentTooltip = null; // To keep track of the currently displayed tooltip
+document.addEventListener('DOMContentLoaded', () => {
+    const chatLogContainer = document.getElementById('chatLogContainer');
+    let showTooltipTimeout;
+    let currentTooltip = null;
 
-        reactions.forEach(reaction => {
-            reaction.addEventListener('mouseover', () => { // Removed 'event' parameter as it's not strictly needed here
-                // Use 'reaction' directly, which is the element the listener is attached to.
-                const reactorNames = reaction.dataset.reactors;
-                if (!reactorNames) return;
+    // Delegate mouseover/mouseout events for .reaction elements
+    chatLogContainer.addEventListener('mouseover', function(event) {
+        const reaction = event.target.closest('.reaction');
+        if (!reaction) return;
 
-                // Clear any pending timeout and hide any existing tooltip immediately
-                clearTimeout(showTooltipTimeout);
-                if (currentTooltip) {
-                    currentTooltip.remove();
-                    currentTooltip = null;
-                }
+        const reactorNames = reaction.dataset.reactors;
+        if (!reactorNames) return;
 
-                // Set a timeout to show the tooltip after a short delay (e.g., 100ms)
-                showTooltipTimeout = setTimeout(() => {
-                    // Double-check if the 'reaction' element is still in the DOM
-                    // This can happen if the element was removed before the timeout fires
-                    if (!document.body.contains(reaction)) {
-                        return;
-                    }
+        clearTimeout(showTooltipTimeout);
+        if (currentTooltip) {
+            currentTooltip.remove();
+            currentTooltip = null;
+        }
 
-                    const tooltip = document.createElement('div');
-                    tooltip.classList.add('custom-tooltip');
-                    tooltip.textContent = `Reacted by: ${reactorNames}`;
-                    document.body.appendChild(tooltip); // Append to body for global positioning
-                    currentTooltip = tooltip; // Store reference to current tooltip
-
-                    // Position the tooltip relative to the hovered reaction element
-                    const rect = reaction.getBoundingClientRect(); // <--- Changed from event.currentTarget
-                    tooltip.style.left = `${rect.left + window.scrollX}px`;
-                    // Position 8px below the reaction
-                    tooltip.style.top = `${rect.bottom + window.scrollY + 8}px`;
-                    tooltip.classList.add('show'); // Trigger opacity transition
-                }, 100); // Adjust this delay (in milliseconds) as desired
-            });
-
-            reaction.addEventListener('mouseout', () => {
-                clearTimeout(showTooltipTimeout); // Clear the show timeout
-                if (currentTooltip) {
-                    currentTooltip.classList.remove('show');
-                    setTimeout(() => {
-                        if (currentTooltip) {
-                            currentTooltip.remove();
-                            currentTooltip = null;
-                        }
-                    }, 150); // Small delay for fade-out transition
-                }
-            });
-
-            // Optional: Hide tooltip if mouse leaves the document or scrolls significantly
-            document.addEventListener('scroll', () => {
-                if (currentTooltip) {
-                    currentTooltip.remove();
-                    currentTooltip = null;
-                    clearTimeout(showTooltipTimeout);
-                }
-            });
-        });
+        showTooltipTimeout = setTimeout(() => {
+            if (!document.body.contains(reaction)) return;
+            const tooltip = document.createElement('div');
+            tooltip.classList.add('custom-tooltip');
+            tooltip.textContent = reactorNames;
+            document.body.appendChild(tooltip);
+            currentTooltip = tooltip;
+            const rect = reaction.getBoundingClientRect();
+            tooltip.style.left = `${rect.left + window.scrollX}px`;
+            tooltip.style.top = `${rect.bottom + window.scrollY + 8}px`;
+            tooltip.classList.add('show');
+        }, 100);
     });
+
+    chatLogContainer.addEventListener('mouseout', function(event) {
+        const reaction = event.target.closest('.reaction');
+        if (!reaction) return;
+        clearTimeout(showTooltipTimeout);
+        if (currentTooltip) {
+            currentTooltip.classList.remove('show');
+            setTimeout(() => {
+                if (currentTooltip) {
+                    currentTooltip.remove();
+                    currentTooltip = null;
+                }
+            }, 150);
+        }
+    });
+
+    document.addEventListener('scroll', () => {
+        if (currentTooltip) {
+            currentTooltip.remove();
+            currentTooltip = null;
+            clearTimeout(showTooltipTimeout);
+        }
+    });
+});
 </script>
 </body>
 </html>
