@@ -113,7 +113,13 @@ def parse_chat_log(file, is_path=True):
     else:
         lines = file.splitlines()
 
-    message_start_pattern = re.compile(r"^(\d{2}:\d{2}:\d{2}) From (.+?) to Everyone:$")
+    # Zoom exports have at least two known timestamp formats:
+    # - Legacy: HH:MM:SS
+    # - Newer:  YYYY-MM-DD HH:MM:SS
+    # Keep backward compatibility by accepting either one.
+    message_start_pattern = re.compile(
+        r"^((?:\d{4}-\d{2}-\d{2}\s+)?\d{2}:\d{2}:\d{2}) From (.+?) to .+?:$"
+    )
     reply_pattern = re.compile(r'^\s*Replying to "(.+?)":$')
     reaction_pattern = re.compile(r"^\s*([^:]+?):(.+)$")
 
