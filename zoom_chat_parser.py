@@ -120,8 +120,14 @@ def parse_chat_log(file, is_path=True):
     message_start_pattern = re.compile(
         r"^((?:\d{4}-\d{2}-\d{2}\s+)?\d{2}:\d{2}:\d{2}) From (.+?) to .+?:$"
     )
-    reply_pattern = re.compile(r'^\s*Replying to "(.+?)":$')
+    # Old format ends with a colon: Replying to "...":
+    # New format has no colon:      Replying to "..."
+    reply_pattern = re.compile(r'^\s*Replying to "(.+?)"(?::)?$')
     reaction_pattern = re.compile(r"^\s*([^:]+?):(.+)$")
+    # New format: each reaction is its own message block:
+    # "Reacted to "snippet..." with EMOJI"
+    # Use a greedy match on the snippet so inner quotes are handled correctly.
+    new_reaction_pattern = re.compile(r'^Reacted to "(.+)" with (.+)$')
 
     flat_messages = []
     current_message_block = []
@@ -193,6 +199,30 @@ def parse_chat_log(file, is_path=True):
             msg_obj["message"] = msg_obj["message"].lstrip("\t")
 
         parsed_messages.append(msg_obj)
+
+    # Post-process new-format reaction messages.
+    # In newer Zoom exports each reaction arrives as its own message block whose
+    # body is "Reacted to "snippet..." with EMOJI".  Convert these into inline
+    # reactions on the target message and drop them from the message list.
+    remaining_messages = []
+    for msg in parsed_messages:
+        m = new_reaction_pattern.match(msg["message"].strip())
+        if m:
+            snippet = m.group(1)
+            emoji = m.group(2).strip()
+            if snippet.endswith("..."):
+                snippet = snippet[:-3]
+            for target in parsed_messages:
+                if (
+                    target is not msg
+                    and target["message"]
+                    and target["message"].startswith(snippet)
+                ):
+                    target["reactions"][emoji].append(msg["sender"])
+                    break
+        else:
+            remaining_messages.append(msg)
+    parsed_messages = remaining_messages
 
     structured_messages = []
     content_lookup = {msg["message"]: msg for msg in parsed_messages if msg["message"]}
