@@ -124,10 +124,18 @@ def parse_chat_log(file, is_path=True):
     # New format has no colon:      Replying to "..."
     reply_pattern = re.compile(r'^\s*Replying to "(.+?)"(?::)?$')
     reaction_pattern = re.compile(r"^\s*([^:]+?):(.+)$")
-    # New format: each reaction is its own message block:
-    # "Reacted to "snippet..." with EMOJI"
-    # Use a greedy match on the snippet so inner quotes are handled correctly.
-    new_reaction_pattern = re.compile(r'^Reacted to "(.+)" with (.+)$')
+    # New format: each reaction is its own message block. Zoom emits at least
+    # two sub-variants depending on the reactor's client, and the quoted
+    # snippet can itself span multiple lines (e.g. it embeds a multi-line
+    # original message), so DOTALL is required for "." to match newlines:
+    #   Reacted to "snippet..." with EMOJI
+    #   Reacted to snippet... with "EMOJI"
+    new_reaction_pattern_snippet_quoted = re.compile(
+        r'^Reacted to "(.+)" with (.+)$', re.DOTALL
+    )
+    new_reaction_pattern_emoji_quoted = re.compile(
+        r'^Reacted to (.+) with "(.+)"$', re.DOTALL
+    )
 
     flat_messages = []
     current_message_block = []
@@ -206,7 +214,10 @@ def parse_chat_log(file, is_path=True):
     # reactions on the target message and drop them from the message list.
     remaining_messages = []
     for msg in parsed_messages:
-        m = new_reaction_pattern.match(msg["message"].strip())
+        stripped_message = msg["message"].strip()
+        m = new_reaction_pattern_snippet_quoted.match(stripped_message)
+        if not m:
+            m = new_reaction_pattern_emoji_quoted.match(stripped_message)
         if m:
             snippet = m.group(1)
             emoji = m.group(2).strip()
