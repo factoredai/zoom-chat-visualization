@@ -136,6 +136,16 @@ def parse_chat_log(file, is_path=True):
     new_reaction_pattern_emoji_quoted = re.compile(
         r'^Reacted to (.+) with "(.+)"$', re.DOTALL
     )
+    # New format: when a reactor removes a previously-added reaction, Zoom
+    # emits its own message block instead of simply deleting the earlier
+    # "Reacted to" entry:
+    #   Removed a EMOJI reaction from "snippet..."
+    # These carry no useful information for rendering (the reaction they
+    # refer to is not reliably attributable), so they should just be
+    # dropped rather than shown as regular chat messages.
+    removed_reaction_pattern = re.compile(
+        r'^Removed a (.+) reaction from "(.+)"$', re.DOTALL
+    )
 
     flat_messages = []
     current_message_block = []
@@ -212,9 +222,13 @@ def parse_chat_log(file, is_path=True):
     # In newer Zoom exports each reaction arrives as its own message block whose
     # body is "Reacted to "snippet..." with EMOJI".  Convert these into inline
     # reactions on the target message and drop them from the message list.
+    # "Removed a reaction" messages are dropped outright since they carry no
+    # information worth rendering.
     remaining_messages = []
     for msg in parsed_messages:
         stripped_message = msg["message"].strip()
+        if removed_reaction_pattern.match(stripped_message):
+            continue
         m = new_reaction_pattern_snippet_quoted.match(stripped_message)
         if not m:
             m = new_reaction_pattern_emoji_quoted.match(stripped_message)
