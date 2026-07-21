@@ -120,32 +120,52 @@ def parse_chat_log(file, is_path=True):
     message_start_pattern = re.compile(
         r"^((?:\d{4}-\d{2}-\d{2}\s+)?\d{2}:\d{2}:\d{2}) From (.+?) to .+?:$"
     )
-    # Old format ends with a colon: Replying to "...":
-    # New format has no colon:      Replying to "..."
-    reply_pattern = re.compile(r'^\s*Replying to "(.+?)"(?::)?$')
+    # Reply prefixes. Zoom localizes these system phrases to the sender's app
+    # language, so we accept English, Spanish and Portuguese variants. The old
+    # English format ends with a colon; newer formats omit it (hence "(?::)?").
+    reply_patterns = [
+        re.compile(r'^\s*Replying to "(.+?)"(?::)?$'),  # English
+        re.compile(r'^\s*Respondiendo a "(.+?)"(?::)?$'),  # Spanish
+        re.compile(r'^\s*Respondendo a "(.+?)"(?::)?$'),  # Portuguese
+    ]
+    # Old inline-reaction format ("Name1, Name2:EMOJI" on their own line).
     reaction_pattern = re.compile(r"^\s*([^:]+?):(.+)$")
-    # New format: each reaction is its own message block. Zoom emits at least
-    # two sub-variants depending on the reactor's client, and the quoted
-    # snippet can itself span multiple lines (e.g. it embeds a multi-line
-    # original message), so DOTALL is required for "." to match newlines:
-    #   Reacted to "snippet..." with EMOJI
-    #   Reacted to snippet... with "EMOJI"
-    new_reaction_pattern_snippet_quoted = re.compile(
-        r'^Reacted to "(.+)" with (.+)$', re.DOTALL
-    )
-    new_reaction_pattern_emoji_quoted = re.compile(
-        r'^Reacted to (.+) with "(.+)"$', re.DOTALL
-    )
+    # New format: each reaction is its own message block. The phrasing is
+    # localized to the reactor's app language, and either the snippet or the
+    # emoji may be the quoted part depending on the client. The quoted snippet
+    # can also span multiple lines (it may embed a multi-line original
+    # message), so DOTALL is required for "." to match newlines. Every pattern
+    # exposes named groups "snippet" and "emoji".
+    #   EN: Reacted to "snippet..." with EMOJI  /  Reacted to snippet... with "EMOJI"
+    #   ES: Se ha reaccionado a "snippet..." con EMOJI
+    #   PT: Reagiu a "snippet..." com EMOJI
+    reaction_message_patterns = [
+        re.compile(r'^Reacted to "(?P<snippet>.+)" with (?P<emoji>.+)$', re.DOTALL),
+        re.compile(r'^Reacted to (?P<snippet>.+) with "(?P<emoji>.+)"$', re.DOTALL),
+        re.compile(
+            r'^Se ha reaccionado a "(?P<snippet>.+)" con (?P<emoji>.+)$', re.DOTALL
+        ),
+        re.compile(
+            r'^Se ha reaccionado a (?P<snippet>.+) con "(?P<emoji>.+)"$', re.DOTALL
+        ),
+        re.compile(r'^Reagiu a "(?P<snippet>.+)" com (?P<emoji>.+)$', re.DOTALL),
+        re.compile(r'^Reagiu a (?P<snippet>.+) com "(?P<emoji>.+)"$', re.DOTALL),
+    ]
     # New format: when a reactor removes a previously-added reaction, Zoom
-    # emits its own message block instead of simply deleting the earlier
-    # "Reacted to" entry:
-    #   Removed a EMOJI reaction from "snippet..."
-    # These carry no useful information for rendering (the reaction they
-    # refer to is not reliably attributable), so they should just be
-    # dropped rather than shown as regular chat messages.
-    removed_reaction_pattern = re.compile(
-        r'^Removed a (.+) reaction from "(.+)"$', re.DOTALL
-    )
+    # emits its own message block instead of deleting the earlier "Reacted to"
+    # entry. These carry no useful information for rendering (the reaction they
+    # refer to is not reliably attributable), so they are dropped rather than
+    # shown as regular chat messages. Phrasing is localized as well:
+    # The word "reaction" is sometimes omitted in the English variant, so it
+    # is optional below ("Removed a EMOJI from ..." vs "... reaction from ...").
+    #   EN: Removed a EMOJI [reaction] from "snippet..."
+    #   ES: Se ha eliminado un(a) EMOJI de "snippet..."
+    #   PT: Removeu uma reação EMOJI de "snippet..."
+    removed_reaction_patterns = [
+        re.compile(r'^Removed a (.+?)(?: reaction)? from "(.+)"$', re.DOTALL),
+        re.compile(r'^Se ha eliminado un\(a\) (.+) de "(.+)"$', re.DOTALL),
+        re.compile(r'^Removeu uma reação (.+) de "(.+)"$', re.DOTALL),
+    ]
 
     flat_messages = []
     current_message_block = []
@@ -177,7 +197,11 @@ def parse_chat_log(file, is_path=True):
             if not line_stripped:
                 continue
 
-            reply_match = reply_pattern.match(line_stripped)
+            reply_match = None
+            for pattern in reply_patterns:
+                reply_match = pattern.match(line_stripped)
+                if reply_match:
+                    break
             reaction_match = reaction_pattern.match(line_stripped)
 
             is_true_reaction = False
@@ -227,14 +251,16 @@ def parse_chat_log(file, is_path=True):
     remaining_messages = []
     for msg in parsed_messages:
         stripped_message = msg["message"].strip()
-        if removed_reaction_pattern.match(stripped_message):
+        if any(p.match(stripped_message) for p in removed_reaction_patterns):
             continue
-        m = new_reaction_pattern_snippet_quoted.match(stripped_message)
-        if not m:
-            m = new_reaction_pattern_emoji_quoted.match(stripped_message)
+        m = None
+        for pattern in reaction_message_patterns:
+            m = pattern.match(stripped_message)
+            if m:
+                break
         if m:
-            snippet = m.group(1)
-            emoji = m.group(2).strip()
+            snippet = m.group("snippet")
+            emoji = m.group("emoji").strip()
             if snippet.endswith("..."):
                 snippet = snippet[:-3]
             for target in parsed_messages:
